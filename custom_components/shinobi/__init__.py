@@ -1,0 +1,132 @@
+"""The Shinobi NVR integration."""
+
+from __future__ import annotations
+
+import logging
+
+import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .api import ShinobiApiError, ShinobiAuthError, ShinobiClient
+from .const import (
+    ATTR_MODE,
+    CONF_API_KEY,
+    CONF_GROUP_KEY,
+    CONF_HOST,
+    CONF_PORT,
+    CONF_SSL,
+    CONF_VERIFY_SSL,
+    DOMAIN,
+    MODES,
+    PLATFORMS,
+    SERVICE_SET_MODE,
+    SERVICE_TRIGGER_MOTION,
+)
+from .coordinator import ShinobiDataCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+_PLATFORMS = [Platform(p) for p in PLATFORMS]
+
+SERVICE_SCHEMA_SET_MODE = vol.Schema(
+    {
+        vol.Required("monitor_id"): cv.string,
+        vol.Required(ATTR_MODE): vol.In(MODES),
+    }
+)
+SERVICE_SCHEMA_TRIGGER = vol.Schema({vol.Required("monitor_id"): cv.string})
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Shinobi from a config entry."""
+    session = async_get_clientsession(hass)
+    client = ShinobiClient(
+        session=session,
+        host=entry.data[CONF_HOST],
+        port=entry.data[CONF_PORT],
+        api_key=entry.data[CONF_API_KEY],
+        group_key=entry.data[CONF_GROUP_KEY],
+        use_ssl=entry.data.get(CONF_SSL, False),
+        verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
+    )
+
+    coordinator = ShinobiDataCoordinator(hass, entry, client)
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except ConfigEntryNotReady:
+        raise
+    except ShinobiAuthError as err:
+        raise ConfigEntryAuthFailed(str(err)) from err
+    except ShinobiApiError as err:
+        raise ConfigEntryNotReady(str(err)) from err
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    _async_register_services(hass)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    unloaded = await hass.config_entries.async_unload_platforms(entry, _PLATFORMS)
+    if unloaded:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        if not hass.data[DOMAIN]:
+            for service in (SERVICE_SET_MODE, SERVICE_TRIGGER_MOTION):
+                hass.services.async_remove(DOMAIN, service)
+    return unloaded
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when its options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _find_client(hass: HomeAssistant, monitor_id: str) -> ShinobiClient | None:
+    """Return the client for whichever entry knows this monitor id."""
+    for coordinator in hass.data.get(DOMAIN, {}).values():
+        if monitor_id in coordinator.data.get("monitors", {}):
+            return coordinator.client
+    # Fall back to the first configured client (single-server common case).
+    for coordinator in hass.data.get(DOMAIN, {}).values():
+        return coordinator.client
+    return None
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register integration-level services once."""
+    if hass.services.has_service(DOMAIN, SERVICE_SET_MODE):
+        return
+
+    async def _handle_set_mode(call: ServiceCall) -> None:
+        monitor_id = call.data["monitor_id"]
+        client = _find_client(hass, monitor_id)
+        if client is None:
+            raise ValueError(f"No Shinobi server knows monitor {monitor_id}")
+        await client.async_set_mode(monitor_id, call.data[ATTR_MODE])
+
+    async def _handle_trigger(call: ServiceCall) -> None:
+        monitor_id = call.data["monitor_id"]
+        client = _find_client(hass, monitor_id)
+        if client is None:
+            raise ValueError(f"No Shinobi server knows monitor {monitor_id}")
+        await client.async_trigger_motion(monitor_id)
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_MODE, _handle_set_mode, schema=SERVICE_SCHEMA_SET_MODE
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_TRIGGER_MOTION,
+        _handle_trigger,
+        schema=SERVICE_SCHEMA_TRIGGER,
+    )

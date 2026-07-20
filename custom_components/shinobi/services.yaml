@@ -1,0 +1,25 @@
+set_mode:
+  fields:
+    monitor_id:
+      required: true
+      example: "TAPOTEST01"
+      selector:
+        text:
+    mode:
+      required: true
+      example: "record"
+      selector:
+        select:
+          options:
+            - "start"
+            - "record"
+            - "stop"
+            - "idle"
+
+trigger_motion:
+  fields:
+    monitor_id:
+      required: true
+      example: "TAPOTEST01"
+      selector:
+        text:

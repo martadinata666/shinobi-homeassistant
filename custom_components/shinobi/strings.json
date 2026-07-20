@@ -1,0 +1,71 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Shinobi NVR",
+        "description": "Enter your Shinobi server details. The API key and Group key can be found in Shinobi under your account API settings.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "api_key": "API key",
+          "group_key": "Group key",
+          "ssl": "Use HTTPS",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the Shinobi server.",
+      "invalid_auth": "Invalid API key or Group key.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Shinobi server is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Shinobi options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)",
+          "motion_timeout": "Motion reset timeout (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "motion": { "name": "Motion" }
+    },
+    "sensor": {
+      "status": { "name": "Status" }
+    }
+  },
+  "services": {
+    "set_mode": {
+      "name": "Set monitor mode",
+      "description": "Change a Shinobi monitor's mode.",
+      "fields": {
+        "monitor_id": {
+          "name": "Monitor ID",
+          "description": "The Shinobi monitor id (mid), e.g. TAPOTEST01."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "start (watch), record, stop (disable), or idle."
+        }
+      }
+    },
+    "trigger_motion": {
+      "name": "Trigger motion",
+      "description": "Fire an external motion trigger for a monitor.",
+      "fields": {
+        "monitor_id": {
+          "name": "Monitor ID",
+          "description": "The Shinobi monitor id (mid)."
+        }
+      }
+    }
+  }
+}
