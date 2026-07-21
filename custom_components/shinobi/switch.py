@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, MODE_RECORD, MODE_START, MODE_STOP
 from .coordinator import ShinobiDataCoordinator
-from .entity import ShinobiMonitorEntity
+from .entity import ShinobiMonitorEntity, async_add_monitor_entities
 
 
 async def async_setup_entry(
@@ -19,13 +19,16 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up enable + recording switches per monitor."""
+    """Set up enable + recording switches per monitor, including any added later."""
     coordinator: ShinobiDataCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SwitchEntity] = []
-    for mid in coordinator.data.get("monitors", {}):
-        entities.append(ShinobiEnableSwitch(coordinator, mid))
-        entities.append(ShinobiRecordSwitch(coordinator, mid))
-    async_add_entities(entities)
+    async_add_monitor_entities(
+        coordinator,
+        async_add_entities,
+        lambda mid, _monitor: [
+            ShinobiEnableSwitch(coordinator, mid),
+            ShinobiRecordSwitch(coordinator, mid),
+        ],
+    )
 
 
 class _ShinobiBaseSwitch(ShinobiMonitorEntity, SwitchEntity):

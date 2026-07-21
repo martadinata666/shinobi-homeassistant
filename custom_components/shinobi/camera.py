@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import ShinobiDataCoordinator
-from .entity import ShinobiMonitorEntity
+from .entity import ShinobiMonitorEntity, async_add_monitor_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,11 +23,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up a camera per Shinobi monitor."""
+    """Set up a camera per Shinobi monitor, including any added later."""
     coordinator: ShinobiDataCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        ShinobiCamera(coordinator, mid)
-        for mid in coordinator.data.get("monitors", {})
+    async_add_monitor_entities(
+        coordinator,
+        async_add_entities,
+        lambda mid, _monitor: [ShinobiCamera(coordinator, mid)],
     )
 
 

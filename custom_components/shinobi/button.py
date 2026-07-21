@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, PTZ_BUTTONS, monitor_ptz_enabled
 from .coordinator import ShinobiDataCoordinator
-from .entity import ShinobiMonitorEntity
+from .entity import ShinobiMonitorEntity, async_add_monitor_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,18 +23,21 @@ async def async_setup_entry(
 ) -> None:
     """Set up PTZ buttons, one set per PTZ-enabled monitor.
 
-    PTZ-enabled state is read once at startup from the monitor's `control`
-    detail flag; it isn't expected to change at runtime, matching how the
-    other platforms enumerate entities from the initial coordinator data.
+    PTZ-enabled state (the `control` detail flag) is re-checked for every
+    newly seen monitor, including ones that appear after startup — not just
+    at initial setup.
     """
     coordinator: ShinobiDataCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[ButtonEntity] = []
-    for mid, monitor in coordinator.data.get("monitors", {}).items():
+
+    def _buttons_for(mid: str, monitor: dict) -> list[ButtonEntity]:
         if not monitor_ptz_enabled(monitor):
-            continue
-        for direction, name, icon in PTZ_BUTTONS:
-            entities.append(ShinobiPtzButton(coordinator, mid, direction, name, icon))
-    async_add_entities(entities)
+            return []
+        return [
+            ShinobiPtzButton(coordinator, mid, direction, name, icon)
+            for direction, name, icon in PTZ_BUTTONS
+        ]
+
+    async_add_monitor_entities(coordinator, async_add_entities, _buttons_for)
 
 
 class ShinobiPtzButton(ShinobiMonitorEntity, ButtonEntity):
