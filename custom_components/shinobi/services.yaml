@@ -23,3 +23,26 @@ trigger_motion:
       example: "TAPOTEST01"
       selector:
         text:
+
+ptz:
+  fields:
+    monitor_id:
+      required: true
+      example: "TAPOTEST01"
+      selector:
+        text:
+    direction:
+      required: true
+      example: "left"
+      selector:
+        select:
+          options:
+            - "up"
+            - "down"
+            - "left"
+            - "right"
+            - "zoom_in"
+            - "zoom_out"
+            - "center"
+            - "stopMove"
+            - "setHome"

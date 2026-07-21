@@ -90,11 +90,20 @@ class ShinobiClient:
         addons = "fullscreen|jquery|gui"
         return self.api_path(f"embed/{self._group_key}/{monitor_id}/{addons}")
 
-    async def _get_json(self, path: str) -> Any:
+    async def _get_json(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> Any:
         url = self.api_path(path)
         try:
             async with async_timeout.timeout(REQUEST_TIMEOUT):
-                resp = await self._session.get(url, ssl=self._verify_ssl)
+                # Let aiohttp encode query params itself (params=) rather than
+                # hand-building a query string: values like ISO timestamps
+                # contain `+`/`:` which, left unescaped in a raw URL string,
+                # get corrupted (a literal `+` is decoded to a space by
+                # Express's query parser server-side).
+                resp = await self._session.get(
+                    url, params=params, ssl=self._verify_ssl
+                )
                 if resp.status == 401 or resp.status == 403:
                     raise ShinobiAuthError(f"Unauthorized ({resp.status}) for {path}")
                 resp.raise_for_status()
@@ -136,17 +145,64 @@ class ShinobiClient:
         return data if isinstance(data, list) else []
 
     async def async_get_videos(
-        self, monitor_id: str | None = None, limit: int = 50
+        self,
+        monitor_id: str | None = None,
+        limit: int | None = 50,
+        start: str | None = None,
+        end: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return recorded video clips."""
+        """Return recorded video clips, newest first.
+
+        ``start``/``end`` accept the same ISO-8601 strings Shinobi returns in
+        a video's own ``time``/``end`` fields.
+        """
         path = f"videos/{self._group_key}"
         if monitor_id:
             path += f"/{monitor_id}"
-        path += f"?limit={limit}"
-        data = await self._get_json(path)
+        params: dict[str, Any] = {"limit": limit} if limit else {"noLimit": 1}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        data = await self._get_json(path, params=params)
         if isinstance(data, dict):
             data = data.get("videos", [])
         return data if isinstance(data, list) else []
+
+    async def async_get_timelapse_frame(
+        self, monitor_id: str, start: str, end: str
+    ) -> dict[str, Any] | None:
+        """Return timelapse-frame metadata closest to a video's time window.
+
+        Shinobi doesn't store a snapshot alongside each recording; the media
+        browser's own UI (``bs5.videosTable.js``) sources thumbnails by
+        querying the timelapse-frame index for a single frame within the
+        clip's start/end window. Mirrors that here.
+        """
+        path = f"timelapse/{self._group_key}/{monitor_id}"
+        data = await self._get_json(
+            path, params={"start": start, "end": end, "limit": 1}
+        )
+        frames = data.get("frames", data) if isinstance(data, dict) else data
+        if isinstance(frames, list) and frames:
+            return frames[0]
+        return None
+
+    def timelapse_frame_url(self, monitor_id: str, filename: str) -> str:
+        """Build the JPEG URL for a timelapse-frame filename.
+
+        Mirrors the client-side construction in ``bs5.timelapseViewer.js``:
+        the frame lives under a ``YYYY-MM-DD`` folder taken from its own
+        filename (``2026-07-21T03-45-53.jpg`` -> ``2026-07-21``).
+        """
+        date_part = filename.split("T", 1)[0]
+        return self.api_path(
+            f"timelapse/{self._group_key}/{monitor_id}/{date_part}/{filename}"
+        )
+
+    def video_url(self, monitor_id: str, filename: str) -> str:
+        """Direct playable URL for a recorded video file."""
+        return self.api_path(f"videos/{self._group_key}/{monitor_id}/{filename}")
 
     async def async_set_mode(self, monitor_id: str, mode: str) -> None:
         """Change a monitor's mode (start/record/stop/idle)."""
@@ -159,3 +215,17 @@ class ShinobiClient:
     async def async_validate(self) -> list[dict[str, Any]]:
         """Validate credentials by fetching monitors; used by the config flow."""
         return await self.async_get_monitors()
+
+    async def async_ptz(self, monitor_id: str, direction: str) -> dict[str, Any]:
+        """Issue a PTZ command.
+
+        ``direction`` is one of left/right/up/down/zoom_in/zoom_out/center/
+        stopMove/setHome. A single call is a complete action: for continuous
+        (ONVIF) moves Shinobi itself starts the move, waits the monitor's
+        configured ``control_url_stop_timeout``, then stops it server-side —
+        the caller does not need to issue a separate stop.
+        """
+        data = await self._get_json(
+            f"control/{self._group_key}/{monitor_id}/{direction}"
+        )
+        return data if isinstance(data, dict) else {}

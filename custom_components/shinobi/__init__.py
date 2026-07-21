@@ -9,13 +9,18 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryNotReady,
+    HomeAssistantError,
+)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ShinobiApiError, ShinobiAuthError, ShinobiClient
 from .const import (
+    ATTR_DIRECTION,
     ATTR_MODE,
     CONF_API_KEY,
     CONF_GROUP_KEY,
@@ -27,8 +32,11 @@ from .const import (
     MANUFACTURER,
     MODES,
     PLATFORMS,
+    PTZ_DIRECTIONS,
+    SERVICE_PTZ,
     SERVICE_SET_MODE,
     SERVICE_TRIGGER_MOTION,
+    monitor_ptz_enabled,
 )
 from .coordinator import ShinobiDataCoordinator
 
@@ -43,6 +51,12 @@ SERVICE_SCHEMA_SET_MODE = vol.Schema(
     }
 )
 SERVICE_SCHEMA_TRIGGER = vol.Schema({vol.Required("monitor_id"): cv.string})
+SERVICE_SCHEMA_PTZ = vol.Schema(
+    {
+        vol.Required("monitor_id"): cv.string,
+        vol.Required(ATTR_DIRECTION): vol.In(PTZ_DIRECTIONS),
+    }
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -93,7 +107,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         if not hass.data[DOMAIN]:
-            for service in (SERVICE_SET_MODE, SERVICE_TRIGGER_MOTION):
+            for service in (SERVICE_SET_MODE, SERVICE_TRIGGER_MOTION, SERVICE_PTZ):
                 hass.services.async_remove(DOMAIN, service)
     return unloaded
 
@@ -103,15 +117,23 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def _find_client(hass: HomeAssistant, monitor_id: str) -> ShinobiClient | None:
-    """Return the client for whichever entry knows this monitor id."""
+def _find_coordinator(
+    hass: HomeAssistant, monitor_id: str
+) -> ShinobiDataCoordinator | None:
+    """Return the coordinator for whichever entry knows this monitor id."""
     for coordinator in hass.data.get(DOMAIN, {}).values():
         if monitor_id in coordinator.data.get("monitors", {}):
-            return coordinator.client
-    # Fall back to the first configured client (single-server common case).
+            return coordinator
+    # Fall back to the first configured entry (single-server common case).
     for coordinator in hass.data.get(DOMAIN, {}).values():
-        return coordinator.client
+        return coordinator
     return None
+
+
+def _find_client(hass: HomeAssistant, monitor_id: str) -> ShinobiClient | None:
+    """Return the client for whichever entry knows this monitor id."""
+    coordinator = _find_coordinator(hass, monitor_id)
+    return coordinator.client if coordinator else None
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
@@ -136,9 +158,27 @@ def _async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_SET_MODE, _handle_set_mode, schema=SERVICE_SCHEMA_SET_MODE
     )
+    async def _handle_ptz(call: ServiceCall) -> None:
+        monitor_id = call.data["monitor_id"]
+        coordinator = _find_coordinator(hass, monitor_id)
+        if coordinator is None:
+            raise HomeAssistantError(f"No Shinobi server knows monitor {monitor_id}")
+        monitor = coordinator.data.get("monitors", {}).get(monitor_id)
+        # Guard client-side: Shinobi's /control endpoint hangs until timeout
+        # (never calls back to res.end()) when a monitor's `control` detail
+        # flag isn't "1", instead of responding with a clean error.
+        if not monitor or not monitor_ptz_enabled(monitor):
+            raise HomeAssistantError(
+                f"PTZ control is not enabled on monitor {monitor_id}"
+            )
+        await coordinator.client.async_ptz(monitor_id, call.data[ATTR_DIRECTION])
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_TRIGGER_MOTION,
         _handle_trigger,
         schema=SERVICE_SCHEMA_TRIGGER,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_PTZ, _handle_ptz, schema=SERVICE_SCHEMA_PTZ
     )

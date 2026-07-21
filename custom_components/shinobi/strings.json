@@ -66,6 +66,20 @@
           "description": "The Shinobi monitor id (mid)."
         }
       }
+    },
+    "ptz": {
+      "name": "PTZ",
+      "description": "Move a PTZ camera. Only works on monitors with PTZ control enabled in Shinobi.",
+      "fields": {
+        "monitor_id": {
+          "name": "Monitor ID",
+          "description": "The Shinobi monitor id (mid)."
+        },
+        "direction": {
+          "name": "Direction",
+          "description": "up, down, left, right, zoom_in, zoom_out, center (go home), stopMove (abort in-progress move), or setHome (save current position as home)."
+        }
+      }
     }
   }
 }
