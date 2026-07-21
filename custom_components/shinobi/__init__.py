@@ -11,6 +11,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ShinobiApiError, ShinobiAuthError, ShinobiClient
@@ -23,6 +24,7 @@ from .const import (
     CONF_SSL,
     CONF_VERIFY_SSL,
     DOMAIN,
+    MANUFACTURER,
     MODES,
     PLATFORMS,
     SERVICE_SET_MODE,
@@ -67,6 +69,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(str(err)) from err
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer=MANUFACTURER,
+        model="Shinobi NVR",
+        configuration_url=client.base_url,
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

@@ -70,6 +70,26 @@ class ShinobiClient:
         """Full JPEG snapshot URL for a monitor."""
         return self.api_path(f"jpeg/{self._group_key}/{monitor_id}/s.jpg")
 
+    def embed_url(self, monitor_id: str) -> str:
+        """Shinobi's embeddable player page for a monitor.
+
+        Renders Shinobi's own client-side player (hls.js/flv.js) in the
+        browser, so playback goes straight from the browser to Shinobi with
+        no server-side re-transcode. Meant to be dropped into an iframe /
+        Webpage Lovelace card for smoother live view than HA's built-in
+        camera stream dialog, which re-muxes the stream through its own
+        `stream` integration.
+
+        The trailing ``:addon`` path segment is a pipe-delimited flag list
+        (see Shinobi's ``web/pages/embed.ejs``). ``jquery`` is not optional —
+        the player script (``bs5.embed.js``) references jQuery at module
+        load time and throws immediately without it, so the page silently
+        never initializes a player. ``gui`` pulls in the stream-chrome CSS
+        and ``fullscreen`` adds a fullscreen toggle button.
+        """
+        addons = "fullscreen|jquery|gui"
+        return self.api_path(f"embed/{self._group_key}/{monitor_id}/{addons}")
+
     async def _get_json(self, path: str) -> Any:
         url = self.api_path(path)
         try:

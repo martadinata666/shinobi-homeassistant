@@ -77,4 +77,8 @@ class ShinobiCamera(ShinobiMonitorEntity, Camera):
             "monitor_id": self._monitor_id,
             "status": mon.get("status"),
             "mode": mon.get("mode"),
+            # Shinobi's own player (hls.js in-browser, no HA-side re-mux).
+            # Point a Lovelace "Webpage"/iframe card at this for smoother
+            # live view than the built-in camera stream dialog.
+            "embed_url": self.coordinator.client.embed_url(self._monitor_id),
         }
