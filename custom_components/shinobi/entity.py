@@ -69,6 +69,7 @@ def async_add_monitor_entities(
     monitor, not just at startup.
     """
     known_monitor_ids: set[str] = set()
+    coordinator.monitor_id_trackers.append(known_monitor_ids)
 
     def _sync() -> None:
         new_entities: list[Entity] = []

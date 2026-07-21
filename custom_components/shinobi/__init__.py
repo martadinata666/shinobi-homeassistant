@@ -97,6 +97,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
+    _async_register_stale_monitor_cleanup(hass, entry, coordinator)
     _async_register_services(hass)
     return True
 
@@ -134,6 +135,54 @@ def _find_client(hass: HomeAssistant, monitor_id: str) -> ShinobiClient | None:
     """Return the client for whichever entry knows this monitor id."""
     coordinator = _find_coordinator(hass, monitor_id)
     return coordinator.client if coordinator else None
+
+
+def _monitor_id_from_device(device: dr.DeviceEntry, entry_id: str) -> str | None:
+    """Extract a monitor id from a per-monitor device's identifiers.
+
+    Returns None for the server hub device itself (identifier == entry_id)
+    or for devices belonging to a different integration/entry.
+    """
+    prefix = f"{entry_id}_"
+    for domain, identifier in device.identifiers:
+        if domain == DOMAIN and identifier.startswith(prefix):
+            return identifier[len(prefix) :]
+    return None
+
+
+def _async_register_stale_monitor_cleanup(
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: ShinobiDataCoordinator
+) -> None:
+    """Remove a monitor's device (and cascade its entities) once it's gone.
+
+    Shinobi has no "monitor deleted" push event, so this runs on every
+    coordinator refresh and diffs currently-known monitor devices against
+    the latest poll: any per-monitor device whose id is no longer in
+    coordinator.data["monitors"] gets removed via the device registry, which
+    automatically removes its entities with it. The now-stale id is also
+    dropped from every platform's own "already added" tracker (registered in
+    coordinator.monitor_id_trackers) so that if the same monitor id
+    reappears later, each platform treats it as new again instead of
+    silently skipping it forever.
+    """
+    device_registry = dr.async_get(hass)
+
+    def _prune() -> None:
+        current_ids = set(coordinator.data.get("monitors", {}))
+        for device in dr.async_entries_for_config_entry(
+            device_registry, entry.entry_id
+        ):
+            monitor_id = _monitor_id_from_device(device, entry.entry_id)
+            if monitor_id is None or monitor_id in current_ids:
+                continue
+            _LOGGER.debug(
+                "Removing device for monitor %s (no longer on Shinobi)", monitor_id
+            )
+            device_registry.async_remove_device(device.id)
+            for tracker in coordinator.monitor_id_trackers:
+                tracker.discard(monitor_id)
+
+    entry.async_on_unload(coordinator.async_add_listener(_prune))
 
 
 def _async_register_services(hass: HomeAssistant) -> None:

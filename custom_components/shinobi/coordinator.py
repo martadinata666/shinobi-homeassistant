@@ -48,6 +48,14 @@ class ShinobiDataCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         # monitor_id -> datetime of most-recent detection event we've seen
         self._last_event_time: dict[str, datetime] = {}
+        # Each platform's async_add_monitor_entities() keeps its own private
+        # "already added" set (it alone knows which monitor IDs it has turned
+        # into entities) but registers that set here so the stale-monitor
+        # cleanup in __init__.py can forget an ID from every platform at
+        # once when a monitor disappears — otherwise, if that monitor ID
+        # later reappears, each platform would think it "already handled"
+        # it and never re-add entities for it.
+        self.monitor_id_trackers: list[set[str]] = []
         scan = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
             hass,
