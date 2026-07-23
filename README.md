@@ -3,8 +3,6 @@
 A custom [Home Assistant](https://www.home-assistant.io/) integration for the
 [Shinobi](https://shinobi.video/) open-source NVR.
 
-See [WIP.md](WIP.md) for the full feature-parity matrix and roadmap.
-
 ## Features (v0.1.0)
 
 - **Camera** entity per monitor — live HLS stream + JPEG snapshot, proxied through HA
