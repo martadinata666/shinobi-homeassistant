@@ -39,6 +39,7 @@ from .const import (
     monitor_ptz_enabled,
 )
 from .coordinator import ShinobiDataCoordinator
+from .socket_client import ShinobiSocketClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,6 +84,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(str(err)) from err
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    socket_client = ShinobiSocketClient(
+        hass,
+        client,
+        entry.entry_id,
+        get_monitor_ids=lambda: list(coordinator.data.get("monitors", {})),
+    )
+    coordinator.socket_client = socket_client
+    entry.async_on_unload(
+        coordinator.async_add_listener(
+            lambda: hass.async_create_task(
+                socket_client.async_ensure_subscribed(
+                    list(coordinator.data.get("monitors", {}))
+                )
+            )
+        )
+    )
+    # Supplementary real-time feature — don't block entry setup on it.
+    entry.async_create_background_task(
+        hass, socket_client.async_start(), f"{DOMAIN}_socket_{entry.entry_id}"
+    )
+    entry.async_on_unload(socket_client.async_stop)
 
     device_registry = dr.async_get(hass)
     device_registry.async_get_or_create(

@@ -54,6 +54,10 @@ class ShinobiClient:
     def group_key(self) -> str:
         return self._group_key
 
+    @property
+    def api_key(self) -> str:
+        return self._api_key
+
     def api_path(self, path: str) -> str:
         """Return an absolute URL for an api-key-prefixed ``path``."""
         return f"{self.base_url}/{self._api_key}/{path.lstrip('/')}"
@@ -132,14 +136,23 @@ class ShinobiClient:
         return data
 
     async def async_get_events(
-        self, monitor_id: str | None = None, limit: int = 20
+        self,
+        monitor_id: str | None = None,
+        limit: int = 20,
+        start: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return recent detection/motion events (newest first)."""
+        """Return recent detection/motion events (newest first).
+
+        ``start`` bounds the window to events at/after that ISO-8601 time
+        (e.g. for tallying object-detection tags over a rolling lookback).
+        """
         path = f"events/{self._group_key}"
         if monitor_id:
             path += f"/{monitor_id}"
-        path += f"?limit={limit}"
-        data = await self._get_json(path)
+        params: dict[str, Any] = {"limit": limit}
+        if start:
+            params["start"] = start
+        data = await self._get_json(path, params=params)
         if isinstance(data, dict):
             data = data.get("events", [])
         return data if isinstance(data, list) else []
@@ -170,19 +183,28 @@ class ShinobiClient:
         return data if isinstance(data, list) else []
 
     async def async_get_timelapse_frame(
-        self, monitor_id: str, start: str, end: str
+        self,
+        monitor_id: str,
+        start: str | None = None,
+        end: str | None = None,
     ) -> dict[str, Any] | None:
-        """Return timelapse-frame metadata closest to a video's time window.
+        """Return one timelapse-frame's metadata.
 
-        Shinobi doesn't store a snapshot alongside each recording; the media
-        browser's own UI (``bs5.videosTable.js``) sources thumbnails by
-        querying the timelapse-frame index for a single frame within the
-        clip's start/end window. Mirrors that here.
+        With ``start``/``end`` given, returns the frame closest to that
+        video's time window — Shinobi doesn't store a snapshot alongside
+        each recording; the media browser's own UI (``bs5.videosTable.js``)
+        sources thumbnails this way. With neither given, Shinobi returns
+        frames newest-first, so this instead returns the single latest
+        timelapse frame captured for the monitor (verified live: a bare
+        ``?limit=1`` call returns the most recent frame, not the oldest).
         """
         path = f"timelapse/{self._group_key}/{monitor_id}"
-        data = await self._get_json(
-            path, params={"start": start, "end": end, "limit": 1}
-        )
+        params: dict[str, Any] = {"limit": 1}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        data = await self._get_json(path, params=params)
         frames = data.get("frames", data) if isinstance(data, dict) else data
         if isinstance(frames, list) and frames:
             return frames[0]
@@ -215,6 +237,29 @@ class ShinobiClient:
     async def async_validate(self) -> list[dict[str, Any]]:
         """Validate credentials by fetching monitors; used by the config flow."""
         return await self.async_get_monitors()
+
+    async def async_get_own_uid(self) -> str | None:
+        """Resolve the uid tied to this API key.
+
+        Shinobi's socket.io auth (``streamConnectionAuthentication`` in
+        ``libs/socketio.js``) requires ``ke`` *and* ``uid`` to match a row,
+        even when authenticating with an API key rather than a session
+        token — so a uid is needed before we can open a socket connection.
+        Calling ``GET /{api_key}/api/{ke}/get/{code}`` with our own key as
+        both the URL auth prefix and the ``code`` makes Shinobi resolve
+        ``endData.uid`` from the same session (``s.auth``) that every other
+        request in this client already authenticates through, so this
+        needs no extra credentials beyond what's already configured.
+        """
+        try:
+            data = await self._get_json(
+                f"api/{self._group_key}/get/{self._api_key}"
+            )
+        except ShinobiApiError as err:
+            _LOGGER.debug("Could not resolve own uid: %s", err)
+            return None
+        key = data.get("key") if isinstance(data, dict) else None
+        return key.get("uid") if isinstance(key, dict) else None
 
     async def async_ptz(self, monitor_id: str, direction: str) -> dict[str, Any]:
         """Issue a PTZ command.

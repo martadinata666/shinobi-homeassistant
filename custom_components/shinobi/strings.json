@@ -29,7 +29,8 @@
         "title": "Shinobi options",
         "data": {
           "scan_interval": "Polling interval (seconds)",
-          "motion_timeout": "Motion reset timeout (seconds)"
+          "motion_timeout": "Motion reset timeout (seconds)",
+          "object_count_hours": "Object count lookback window (hours)"
         }
       }
     }
@@ -39,7 +40,8 @@
       "motion": { "name": "Motion" }
     },
     "sensor": {
-      "status": { "name": "Status" }
+      "status": { "name": "Status" },
+      "object_count": { "name": "Object Count" }
     }
   },
   "services": {

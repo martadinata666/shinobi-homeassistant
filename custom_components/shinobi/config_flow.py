@@ -22,11 +22,13 @@ from .const import (
     CONF_GROUP_KEY,
     CONF_HOST,
     CONF_MOTION_TIMEOUT,
+    CONF_OBJECT_COUNT_HOURS,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
     CONF_SSL,
     CONF_VERIFY_SSL,
     DEFAULT_MOTION_TIMEOUT,
+    DEFAULT_OBJECT_COUNT_HOURS,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
@@ -125,6 +127,12 @@ class ShinobiOptionsFlow(OptionsFlow):
                     CONF_MOTION_TIMEOUT,
                     default=opts.get(CONF_MOTION_TIMEOUT, DEFAULT_MOTION_TIMEOUT),
                 ): vol.All(int, vol.Range(min=5, max=600)),
+                vol.Optional(
+                    CONF_OBJECT_COUNT_HOURS,
+                    default=opts.get(
+                        CONF_OBJECT_COUNT_HOURS, DEFAULT_OBJECT_COUNT_HOURS
+                    ),
+                ): vol.All(int, vol.Range(min=1, max=168)),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
