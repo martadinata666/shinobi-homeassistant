@@ -13,6 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import ShinobiApiError, ShinobiAuthError, ShinobiClient
 from .const import (
+    ACTIVE_MODES,
     CONF_MOTION_TIMEOUT,
     CONF_OBJECT_COUNT_HOURS,
     CONF_SCAN_INTERVAL,
@@ -72,6 +73,12 @@ class ShinobiDataCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # monitor_id -> {tag: count, "_total": N}, recomputed every Nth poll
         # and served from cache in between (see _async_update_object_counts).
         self._object_counts: dict[str, dict[str, int]] = {}
+        # monitor_id -> last mode seen that wasn't "stop"/"idle". Shinobi
+        # forgets nothing about *how* a monitor was running once it's
+        # stopped, so re-enabling it would otherwise always land on "start"
+        # (watch-only) even if it had been recording. Tracked here on every
+        # poll so ShinobiEnableSwitch can put it back the way it was.
+        self.last_active_mode: dict[str, str] = {}
         self._poll_count = 0
         scan = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
@@ -118,6 +125,9 @@ class ShinobiDataCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mon["_last_motion"] = last.isoformat() if last else None
             mon["_latest_frame"] = latest_frames.get(mid)
             mon["_object_counts"] = self._object_counts.get(mid, {})
+            mode = str(mon.get("mode"))
+            if mode in ACTIVE_MODES:
+                self.last_active_mode[mid] = mode
             monitors_by_id[mid] = mon
 
         return {"monitors": monitors_by_id}

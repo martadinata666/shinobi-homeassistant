@@ -56,6 +56,10 @@ MODE_IDLE = "idle"
 
 MODES = [MODE_START, MODE_RECORD, MODE_STOP, MODE_IDLE]
 
+# Modes a monitor can be in while "enabled" — re-enabling a stopped monitor
+# restores whichever of these it was last in (see ShinobiEnableSwitch).
+ACTIVE_MODES = (MODE_START, MODE_RECORD)
+
 # Shinobi status strings (monitor.status)
 STATUS_WATCHING = "Watching"
 STATUS_RECORDING = "Recording"
